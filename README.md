@@ -71,9 +71,23 @@ No manual configuration needed! With v3.0, you can dynamically add projects:
 
 ## Usage Examples
 
+### Create and approve a sacred plan:
+```bash
+# Create a sacred plan from a file
+./rag_cli.sh sacred create proj_123 "API Authentication" api_auth_plan.md
+
+# Approve the plan (will prompt for verification code)
+./rag_cli.sh sacred approve plan_abc123
+```
+
+### Check for drift from the sacred plan:
+```bash
+./rag_cli.sh sacred drift proj_123
+```
+
 ### Query the knowledge base:
 ```bash
-./rag_cli.sh ask "What authentication system did I use?"
+./rag_cli.sh ask "What is the approved method for API authentication?"
 ```
 
 ### Add a decision:

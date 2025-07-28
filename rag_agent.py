@@ -303,8 +303,7 @@ class ProjectKnowledgeAgent:
         # Initialize Google GenAI
         try:
             self.embedder = genai.Client(
-                http_options=HttpOptions(api_version="v1"),
-                api_key=os.environ.get("GOOGLE_API_KEY")
+                http_options=HttpOptions(api_version="v1")
             )
             logger.info("Google GenAI client initialized successfully")
         except Exception as e:

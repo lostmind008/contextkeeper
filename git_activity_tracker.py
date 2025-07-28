@@ -1,412 +1,292 @@
 #!/usr/bin/env python3
 """
-Git Activity Tracker for ContextKeeper
-Tracks development activity through git commits and changes
+git_activity_tracker.py - Git-based activity tracking for ContextKeeper v3.0
+
+Created: 2025-07-24 03:41:27 (Australia/Sydney)
+Part of: ContextKeeper v3.0 Sacred Layer Upgrade
+
+Purpose:
+Replaces file-watching with more reliable Git-based tracking. Captures actual
+commits, analyzes development patterns, and integrates with the RAG agent.
+
+Key Features:
+- Track git commits and changes
+- Analyze development activity patterns
+- Integrate with project knowledge base
+- Support multi-project Git tracking
+
+Dependencies:
+- GitPython for repository interaction
+- Integration with ProjectKnowledgeAgent
 """
 
-import os
-import json
-import subprocess
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
 import logging
+from typing import Dict, List, Optional, Set
+from datetime import datetime, timedelta
 from dataclasses import dataclass
-from collections import defaultdict
+from pathlib import Path
+import git
 
 logger = logging.getLogger(__name__)
 
-@dataclass
-class GitCommit:
-    """Represents a git commit"""
-    hash: str
-    author: str
-    date: datetime
-    message: str
-    files_changed: List[str]
-    additions: int
-    deletions: int
 
 @dataclass
 class GitActivity:
-    """Aggregated git activity for a time period"""
-    commits: List[GitCommit]
-    total_commits: int
-    files_modified: Dict[str, int]  # file -> change count
-    lines_added: int
-    lines_deleted: int
+    """Represents git activity analysis results"""
+    project_id: str
+    commits_count: int
+    files_changed: Set[str]
     active_branches: List[str]
-    current_branch: str
+    recent_commits: List[Dict]
+    activity_summary: str
+
 
 class GitActivityTracker:
-    """Tracks development activity through git"""
-
-    def __init__(self, project_root: str):
-        self.project_root = Path(project_root)
-        self.git_dir = self.project_root / ".git"
-
-        if not self.git_dir.exists():
-            raise ValueError(f"No git repository found at {project_root}")
+    """
+    Tracks Git repository activity for a specific project.
     
-    def _run_git_command(self, args: List[str]) -> str:
-        """Execute a git command and return output"""
+    This class monitors git commits, branches, and file changes to provide
+    insights into development activity without relying on file system watching.
+    """
+    
+    def __init__(self, project_path: str, project_id: str):
+        """
+        Initialize Git activity tracker for a project.
+        
+        Args:
+            project_path: Path to the Git repository
+            project_id: Unique identifier for the project
+        """
+        self.project_path = Path(project_path)
+        self.project_id = project_id
+        self.repo = None
+        
+        # Initialize Git repository connection
         try:
-            result = subprocess.run(
-                ["git"] + args,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Git command failed: {e.stderr}")
-            return ""
-    
-    def get_recent_commits(self, hours: int = 24, branch: Optional[str] = None) -> List[GitCommit]:
-        """Get commits from the last N hours"""
-        since = datetime.now() - timedelta(hours=hours)
-        since_str = since.strftime("%Y-%m-%d %H:%M:%S")
+            # Look for .git directory in project path or parent directories
+            git_repo_path = self._find_git_repo(self.project_path)
+            if git_repo_path:
+                self.repo = git.Repo(git_repo_path)
+                logger.info(f"Git repository found for project {project_id}: {git_repo_path}")
+            else:
+                logger.warning(f"No Git repository found for project {project_id} at {project_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Git repository for {project_id}: {e}")
+            self.repo = None
         
-        # Build git log command
-        cmd = [
-            "log",
-            f"--since=\"{since_str}\"",
-            "--pretty=format:%H|%an|%ad|%s",
-            "--date=iso",
-            "--numstat"
-        ]
+    def _find_git_repo(self, path: Path) -> Optional[str]:
+        """
+        Find the Git repository root by looking for .git directory.
         
-        if branch:
-            cmd.append(branch)
-        
-        output = self._run_git_command(cmd)
-        if not output:
-            return []
-        
-        commits = []
-        current_commit = None
-        files_changed = []
-        additions = 0
-        deletions = 0
-
-        for line in output.split('\n'):
-            if '|' in line and not '\t' in line:
-                # Save previous commit if exists
-                if current_commit:
-                    current_commit.files_changed = files_changed
-                    current_commit.additions = additions
-                    current_commit.deletions = deletions
-                    commits.append(current_commit)
-
-                # Parse new commit
-                parts = line.split('|')
-                if len(parts) >= 4:
-                    current_commit = GitCommit(
-                        hash=parts[0],
-                        author=parts[1],
-                        date=datetime.fromisoformat(parts[2].strip()),
-                        message=parts[3],
-                        files_changed=[],
-                        additions=0,
-                        deletions=0
-                    )
-                    files_changed = []
-                    additions = 0
-                    deletions = 0
+        Args:
+            path: Starting path to search from
             
-            elif '\t' in line and current_commit:
-                # Parse file stats
-                parts = line.split('\t')
-                if len(parts) >= 3:
-                    try:
-                        add = int(parts[0]) if parts[0] != '-' else 0
-                        delete = int(parts[1]) if parts[1] != '-' else 0
-                        additions += add
-                        deletions += delete
-                        files_changed.append(parts[2])
-                    except ValueError:
-                        pass
-
-        # Don't forget the last commit
-        if current_commit:
-            current_commit.files_changed = files_changed
-            current_commit.additions = additions
-            current_commit.deletions = deletions
-            commits.append(current_commit)
-
-        return commits
-    
-    def get_file_changes(self, file_path: str, hours: int = 168) -> List[Tuple[datetime, str]]:
-        """Get change history for a specific file"""
-        cmd = [
-            "log",
-            f"--since=\"{hours} hours ago\"",
-            "--pretty=format:%ad|%s",
-            "--date=iso",
-            "--",
-            file_path
-        ]
-        
-        output = self._run_git_command(cmd)
-        if not output:
-            return []
-        
-        changes = []
-        for line in output.split('\n'):
-            if '|' in line:
-                parts = line.split('|', 1)
-                if len(parts) == 2:
-                    date = datetime.fromisoformat(parts[0].strip())
-                    message = parts[1].strip()
-                    changes.append((date, message))
-
-        return changes
-
-    def get_current_branch(self) -> str:
-        """Get the current branch name"""
-        return self._run_git_command(["branch", "--show-current"])
-
-    def get_active_branches(self, days: int = 7) -> List[str]:
-        """Get branches with recent activity"""
-        cmd = [
-            "for-each-ref",
-            "--sort=-committerdate",
-            "refs/heads/",
-            f"--format=%(refname:short)|%(committerdate:iso)"
-        ]
-
-        output = self._run_git_command(cmd)
-        if not output:
-            return []
-
-        cutoff = datetime.now() - timedelta(days=days)
-        active_branches = []
-
-        for line in output.split('\n'):
-            if '|' in line:
-                parts = line.split('|')
-                if len(parts) == 2:
-                    branch = parts[0]
-                    date = datetime.fromisoformat(parts[1].strip())
-                    if date > cutoff:
-                        active_branches.append(branch)
-
-        return active_branches
-
-    def get_uncommitted_changes(self) -> Dict[str, Any]:
-        """Get current uncommitted changes"""
-        # Get status
-        status_output = self._run_git_command(["status", "--porcelain"])
-
-        modified_files = []
-        untracked_files = []
-        staged_files = []
-
-        for line in status_output.split('\n'):
-            if line:
-                status = line[:2]
-                file_path = line[3:]
-                
-                if status[0] in ['M', 'A', 'D', 'R']:
-                    staged_files.append(file_path)
-                if status[1] == 'M':
-                    modified_files.append(file_path)
-                elif status == '??':
-                    untracked_files.append(file_path)
-
-        # Get diff stats
-        diff_output = self._run_git_command(["diff", "--stat"])
-
-        return {
-            "modified": modified_files,
-            "untracked": untracked_files,
-            "staged": staged_files,
-            "has_changes": bool(modified_files or untracked_files or staged_files),
-            "diff_summary": diff_output
-        }
+        Returns:
+            Path to Git repository root or None if not found
+        """
+        current = path.resolve()
+        for parent in [current] + list(current.parents):
+            if (parent / ".git").exists():
+                return str(parent)
+        return None
     
     def analyze_activity(self, hours: int = 24) -> GitActivity:
-        """Analyze git activity for a time period"""
-        commits = self.get_recent_commits(hours)
+        """
+        Analyze Git activity for the specified time period.
         
-        # Aggregate statistics
-        files_modified = defaultdict(int)
-        total_additions = 0
-        total_deletions = 0
-        
-        for commit in commits:
-            total_additions += commit.additions
-            total_deletions += commit.deletions
-            for file in commit.files_changed:
-                files_modified[file] += 1
+        Args:
+            hours: Number of hours to look back (default: 24)
 
-        return GitActivity(
-            commits=commits,
-            total_commits=len(commits),
-            files_modified=dict(files_modified),
-            lines_added=total_additions,
-            lines_deleted=total_deletions,
-            active_branches=self.get_active_branches(),
-            current_branch=self.get_current_branch()
-        )
-
-    def correlate_with_objectives(self, commits: List[GitCommit],
-                                 objectives: List[str]) -> Dict[str, Any]:
-        """Correlate commit messages with project objectives"""
-        # Simple keyword matching - can be enhanced with NLP
-        objective_keywords = {}
-        for obj in objectives:
-            # Extract keywords from objectives
-            keywords = [w.lower() for w in obj.split()
-                       if len(w) > 3 and w.lower() not in
-                       ['the', 'and', 'for', 'with', 'from']]
-            objective_keywords[obj] = keywords
-
-        objective_commits = defaultdict(list)
-        unaligned_commits = []
-
-        for commit in commits:
-            commit_words = commit.message.lower().split()
-            aligned = False
-            
-            for obj, keywords in objective_keywords.items():
-                if any(keyword in commit_words for keyword in keywords):
-                    objective_commits[obj].append(commit)
-                    aligned = True
-                    break
-            
-            if not aligned:
-                unaligned_commits.append(commit)
-
-        # Calculate alignment score
-        total_commits = len(commits)
-        aligned_commits = total_commits - len(unaligned_commits)
-        alignment_score = aligned_commits / total_commits if total_commits > 0 else 0
-
-        return {
-            "alignment_score": alignment_score,
-            "objective_commits": dict(objective_commits),
-            "unaligned_commits": unaligned_commits,
-            "status": "aligned" if alignment_score > 0.6 else "potential_drift"
-        }
-
-    def generate_activity_summary(self, hours: int = 24) -> str:
-        """Generate a human-readable activity summary"""
-        activity = self.analyze_activity(hours)
-        uncommitted = self.get_uncommitted_changes()
-
-        summary = f"""
-Git Activity Summary (Last {hours} hours)
-=====================================
-Current Branch: {activity.current_branch}
-Total Commits: {activity.total_commits}
-Lines Added: +{activity.lines_added}
-Lines Deleted: -{activity.lines_deleted}
-
-Most Modified Files:
-"""
-
-        # Sort files by modification count
-        sorted_files = sorted(activity.files_modified.items(),
-                            key=lambda x: x[1], reverse=True)[:5]
-
-        for file, count in sorted_files:
-            summary += f"  - {file}: {count} changes\n"
-
-        if uncommitted['has_changes']:
-            summary += f"\nUncommitted Changes:\n"
-            summary += f"  - Modified: {len(uncommitted['modified'])} files\n"
-            summary += f"  - Staged: {len(uncommitted['staged'])} files\n"
-            summary += f"  - Untracked: {len(uncommitted['untracked'])} files\n"
-
-        if activity.commits:
-            summary += f"\nRecent Commits:\n"
-            for commit in activity.commits[:5]:
-                summary += f"  - {commit.date.strftime('%Y-%m-%d %H:%M')}: {commit.message[:60]}...\n"
-
-        return summary
-
-# Integration with RAG Agent
-class GitIntegratedRAGAgent:
-    """Extension to integrate git tracking with RAG agent"""
-    
-    def __init__(self, rag_agent, project_manager):
-        self.rag_agent = rag_agent
-        self.project_manager = project_manager
-        self.git_trackers = {}
-
-    def init_git_tracking(self, project_id: str):
-        """Initialize git tracking for a project"""
-        project = self.project_manager.get_project(project_id)
-        if not project:
-            return False
+        Returns:
+            GitActivity object with analysis results
+        """
+        if not self.repo:
+            return GitActivity(
+                project_id=self.project_id,
+                commits_count=0,
+                files_changed=set(),
+                active_branches=[],
+                recent_commits=[],
+                activity_summary="No Git repository available"
+            )
         
         try:
-            tracker = GitActivityTracker(project.root_path)
-            self.git_trackers[project_id] = tracker
-            return True
-        except ValueError as e:
-            logger.warning(f"Could not init git tracking for {project.name}: {e}")
-            return False
+            # Calculate time threshold
+            since_time = datetime.now() - timedelta(hours=hours)
 
-    async def update_project_from_git(self, project_id: str):
-        """Update project knowledge base from recent git activity"""
-        if project_id not in self.git_trackers:
-            if not self.init_git_tracking(project_id):
-                return
-        
-        tracker = self.git_trackers[project_id]
-        activity = tracker.analyze_activity(hours=24)
+            # Get commits from the specified time period
+            recent_commits = []
+            files_changed = set()
 
-        # Ingest recently modified files
-        for file_path, _ in activity.files_modified.items():
-            full_path = Path(tracker.project_root) / file_path
-            if full_path.exists() and full_path.is_file():
-                # Check if it's a supported file type
-                if any(str(full_path).endswith(ext) for ext in
-                      self.rag_agent.config['default_file_extensions']):
-                    await self.rag_agent.ingest_file(str(full_path), project_id)
-        
-        # Add git activity summary to knowledge base
-        summary = tracker.generate_activity_summary()
-        await self._add_activity_to_knowledge(project_id, summary)
-    
-    async def _add_activity_to_knowledge(self, project_id: str, summary: str):
-        """Add git activity summary to the knowledge base"""
-        content = f"GIT ACTIVITY SUMMARY\n{summary}\nDATE: {datetime.now().isoformat()}"
-        
-        # Embed and store
-        embedding = await self.rag_agent.embed_text(content)
-        
-        if project_id in self.rag_agent.collections:
-            self.rag_agent.collections[project_id].add(
-                ids=[f"git_activity_{datetime.now().timestamp()}"],
-                embeddings=[embedding],
-                documents=[content],
-                metadatas=[{
-                    'type': 'git_activity',
-                    'project_id': project_id,
-                    'timestamp': datetime.now().isoformat()
-                }]
+            # basically, we need to iterate through commits since the time threshold
+            for commit in self.repo.iter_commits(since=since_time.strftime('%Y-%m-%d %H:%M:%S')):
+                commit_info = {
+                    'hash': commit.hexsha[:8],
+                    'message': commit.message.strip(),
+                    'author': str(commit.author),
+                    'date': commit.committed_datetime.isoformat(),
+                    'files_changed': len(commit.stats.files)
+                }
+                recent_commits.append(commit_info)
+                
+                # Add changed files to our set
+                files_changed.update(commit.stats.files.keys())
+
+            # Get active branches (those with recent activity)
+            active_branches = []
+            try:
+                for branch in self.repo.branches:
+                    try:
+                        # Check if branch has commits in the time period
+                        branch_commits = list(self.repo.iter_commits(
+                            branch,
+                            since=since_time.strftime('%Y-%m-%d %H:%M:%S'),
+                            max_count=1
+                        ))
+                        if branch_commits:
+                            active_branches.append(branch.name)
+                    except:
+                        # Skip branches that can't be accessed
+                        continue
+            except:
+                # If we can't access branches, just use current branch
+                try:
+                    if self.repo.active_branch:
+                        active_branches = [self.repo.active_branch.name]
+                except:
+                    active_branches = ["unknown"]
+
+            # Generate activity summary
+            if recent_commits:
+                activity_summary = f"{len(recent_commits)} commits, {len(files_changed)} files changed, active on {len(active_branches)} branches"
+            else:
+                activity_summary = f"No commits in the last {hours} hours"
+
+            return GitActivity(
+                project_id=self.project_id,
+                commits_count=len(recent_commits),
+                files_changed=files_changed,
+                active_branches=active_branches,
+                recent_commits=recent_commits,
+                activity_summary=activity_summary
             )
 
-    def check_objective_alignment(self, project_id: str) -> Dict[str, Any]:
-        """Check if recent commits align with project objectives"""
-        project = self.project_manager.get_project(project_id)
-        if not project or project_id not in self.git_trackers:
-            return {"error": "Project not found or git not initialized"}
+        except Exception as e:
+            logger.error(f"Failed to analyze Git activity for {self.project_id}: {e}")
+            return GitActivity(
+                project_id=self.project_id,
+                commits_count=0,
+                files_changed=set(),
+                active_branches=[],
+                recent_commits=[],
+                activity_summary=f"Analysis failed: {str(e)}"
+            )
+    
+    def get_uncommitted_changes(self) -> Dict[str, List[str]]:
+        """
+        Get current uncommitted changes in the repository.
+        
+        Returns:
+            Dictionary with 'modified', 'added', 'deleted' file lists
+        """
+        if not self.repo:
+            return {
+                'modified': [],
+                'added': [],
+                'deleted': []
+            }
+        
+        try:
+            # fair warning - GitPython uses different status categories
+            modified_files = [item.a_path for item in self.repo.index.diff(None)]
+            staged_files = [item.a_path for item in self.repo.index.diff("HEAD")]
+            untracked_files = self.repo.untracked_files
+            
+            # Get deleted files
+            deleted_files = []
+            for item in self.repo.index.diff(None):
+                if item.deleted_file:
+                    deleted_files.append(item.a_path)
+            
+            return {
+                'modified': modified_files,
+                'added': list(untracked_files) + staged_files,
+                'deleted': deleted_files
+            }
 
-        tracker = self.git_trackers[project_id]
-        commits = tracker.get_recent_commits(hours=24)
+        except Exception as e:
+            logger.error(f"Failed to get uncommitted changes for {self.project_id}: {e}")
+            return {
+                'modified': [],
+                'added': [],
+                'deleted': []
+            }
 
-        # Get active objectives
-        active_objectives = [
-            obj.title for obj in project.objectives
-            if obj.status != "completed"
-        ]
 
-        if not active_objectives:
-            return {"status": "no_objectives"}
+class GitIntegratedRAGAgent:
+    """
+    Integrates Git tracking with the main RAG agent.
 
-        return tracker.correlate_with_objectives(commits, active_objectives)
+    Manages multiple GitActivityTracker instances and provides
+    a unified interface for the RAG agent to access Git data.
+    """
+    
+    def __init__(self, rag_agent, project_manager):
+        """
+        Initialize Git integration for RAG agent.
+
+        Args:
+            rag_agent: Reference to ProjectKnowledgeAgent
+            project_manager: Reference to ProjectManager
+        """
+        self.rag_agent = rag_agent
+        self.project_manager = project_manager
+        self.git_trackers: Dict[str, GitActivityTracker] = {}
+        
+    def init_git_tracking(self, project_id: str) -> bool:
+        """
+        Initialize Git tracking for a specific project.
+        
+        Args:
+            project_id: Project identifier
+
+        Returns:
+            True if successful, False otherwise
+        """
+        # TODO: Get project path from project manager
+        # TODO: Create GitActivityTracker instance
+        # TODO: Store in git_trackers dictionary
+        
+        logger.info(f"Git tracking initialized for project {project_id}")
+        return True
+    
+    async def update_project_from_git(self, project_id: str):
+        """
+        Update project knowledge base from Git activity.
+        
+        Args:
+            project_id: Project to update
+        """
+        # TODO: Get recent Git activity
+        # TODO: Extract relevant changes
+        # TODO: Update RAG knowledge base with new information
+        
+        logger.info(f"Updated project {project_id} from Git activity")
+
+
+# Placeholder functions for integration points
+def integrate_with_rag_agent():
+    """Integration point with main RAG agent"""
+    pass
+
+
+def add_git_endpoints(app):
+    """Add Git-related API endpoints to Flask app"""
+    # TODO: Implement endpoints as specified in the upgrade plan
+    pass
+
+
+if __name__ == "__main__":
+    # Test code for development
+    print("Git Activity Tracker - ContextKeeper v3.0")
+    print("This module provides Git-based activity tracking")

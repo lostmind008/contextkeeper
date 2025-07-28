@@ -3,610 +3,94 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ContextKeeper Analytics Dashboard</title>
+    <title>ContextKeeper v3.0 - Analytics Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0a0a0a;
-            color: #e0e0e0;
-            line-height: 1.6;
-        }
-
-        .dashboard {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 30px;
-            border-radius: 15px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: #1a1a2e;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            border: 1px solid #2a2a3e;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(102,126,234,0.2);
-        }
-
-        .stat-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .stat-label {
-            color: #888;
-            font-size: 0.9em;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 30px;
-            margin-bottom: 30px;
-        }
-
-        .chart-container {
-            background: #1a1a2e;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            border: 1px solid #2a2a3e;
-        }
-
-        .chart-container h2 {
-            margin-bottom: 20px;
-            color: #667eea;
-        }
-
-        .projects-list {
-            background: #1a1a2e;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            border: 1px solid #2a2a3e;
-        }
-
-        .project-item {
-            padding: 15px;
-            margin-bottom: 15px;
-            background: #0a0a0a;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.3s ease;
-        }
-
-        .project-item:hover {
-            background: #16213e;
-        }
-
-        .project-name {
-            font-weight: bold;
-            color: #667eea;
-        }
-
-        .project-stats {
-            display: flex;
-            gap: 20px;
-            font-size: 0.9em;
-        }
-
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            text-transform: uppercase;
-            font-weight: bold;
-        }
-
-        .status-active { background: #4ade80; color: #0a0a0a; }
-        .status-paused { background: #fbbf24; color: #0a0a0a; }
-        .status-archived { background: #6b7280; color: #fff; }
-
-        .drift-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 5px;
-        }
-
-        .drift-aligned { background: #4ade80; }
-        .drift-minor { background: #fbbf24; }
-        .drift-major { background: #ef4444; }
-
-        .progress-bar {
-            width: 200px;
-            height: 8px;
-            background: #2a2a3e;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            transition: width 0.3s ease;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 50px;
-            color: #667eea;
-        }
-
-        .error {
-            background: #ef4444;
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-        }
-
-        .refresh-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: transform 0.3s ease;
-        }
-
-        .refresh-btn:hover {
-            transform: scale(1.05);
-        }
-
-        .time-filter {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        .filter-btn {
-            background: #2a2a3e;
-            color: #e0e0e0;
-            border: 1px solid #3a3a4e;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .filter-btn.active {
-            background: #667eea;
-            border-color: #667eea;
-        }
-
-        .filter-btn:hover {
-            background: #3a3a4e;
-        }
-
-        .filter-btn.active:hover {
-            background: #764ba2;
-        }
+        body { font-family: sans-serif; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 1200px; margin: auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #5a5a5a; }
     </style>
 </head>
 <body>
-    <div class="dashboard">
-        <div class="header">
-            <h1>ContextKeeper Analytics</h1>
-            <p>Real-time development insights and project analytics</p>
-            <button class="refresh-btn" onclick="refreshDashboard()">Refresh Data</button>
-        </div>
-
-        <div class="time-filter">
-            <button class="filter-btn active" data-hours="24">24 Hours</button>
-            <button class="filter-btn" data-hours="168">7 Days</button>
-            <button class="filter-btn" data-hours="720">30 Days</button>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-value" id="total-projects">-</div>
-                <div class="stat-label">Total Projects</div>
+    <div class="container">
+        <h1>ContextKeeper v3.0 - Analytics Dashboard</h1>
+        <div class="grid">
+            <div class="card">
+                <h2>Project Health</h2>
+                <canvas id="projectHealthChart"></canvas>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="active-objectives">-</div>
-                <div class="stat-label">Active Objectives</div>
+            <div class="card">
+                <h2>Sacred Plan Adherence</h2>
+                <canvas id="adherenceChart"></canvas>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="decisions-made">-</div>
-                <div class="stat-label">Decisions Made</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="alignment-score">-</div>
-                <div class="stat-label">Avg Alignment</div>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-container">
-                <h2>Activity Timeline</h2>
-                <canvas id="activity-chart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h2>Objective Progress</h2>
-                <canvas id="objectives-chart"></canvas>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-container">
-                <h2>Project Focus Distribution</h2>
-                <canvas id="focus-chart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h2>Development Patterns</h2>
-                <canvas id="patterns-chart"></canvas>
-            </div>
-        </div>
-
-        <div class="projects-list">
-            <h2>Project Status</h2>
-            <div id="projects-container">
-                <div class="loading">Loading projects...</div>
+            <div class="card">
+                <h2>Recent Activity</h2>
+                <ul id="activityFeed"></ul>
             </div>
         </div>
     </div>
-
     <script>
-        const API_BASE = 'http://localhost:5555';
-        let currentHours = 24;
-        let charts = {};
-
-        // Initialize dashboard
-        document.addEventListener('DOMContentLoaded', () => {
-            initializeTimeFilters();
-            refreshDashboard();
-            setInterval(refreshDashboard, 60000); // Auto-refresh every minute
-        });
-
-        function initializeTimeFilters() {
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                    e.target.classList.add('active');
-                    currentHours = parseInt(e.target.dataset.hours);
-                    refreshDashboard();
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch and render charts
+            fetch('/analytics/summary')
+                .then(response => response.json())
+                .then(data => {
+                    renderProjectHealth(data);
+                    renderAdherenceChart(data);
+                    renderActivityFeed(data);
                 });
-            });
-        }
 
-        async function refreshDashboard() {
-            try {
-                // Fetch all data
-                const [projects, summary] = await Promise.all([
-                    fetch(`${API_BASE}/projects`).then(r => r.json()),
-                    fetch(`${API_BASE}/projects`).then(r => r.json()) // Would be a summary endpoint
-                ]);
-
-                updateStats(projects);
-                updateProjectsList(projects);
-                updateCharts(projects);
-
-            } catch (error) {
-                console.error('Dashboard refresh error:', error);
-                showError('Failed to load dashboard data');
-            }
-        }
-
-        function updateStats(data) {
-            document.getElementById('total-projects').textContent = data.total_projects || 0;
-            document.getElementById('active-objectives').textContent =
-                data.projects.reduce((sum, p) => sum + (p.objectives_pending || 0), 0);
-            document.getElementById('decisions-made').textContent =
-                data.projects.reduce((sum, p) => sum + (p.total_decisions || 0), 0);
-
-            // Calculate average alignment (would come from drift analysis)
-            const avgAlignment = 0.75; // Placeholder
-            document.getElementById('alignment-score').textContent =
-                (avgAlignment * 100).toFixed(0) + '%';
-        }
-
-        function updateProjectsList(data) {
-            const container = document.getElementById('projects-container');
-
-            if (!data.projects || data.projects.length === 0) {
-                container.innerHTML = '<p>No projects found</p>';
-                return;
-            }
-
-            container.innerHTML = data.projects.map(project => `
-                <div class="project-item">
-                    <div>
-                        <div class="project-name">${project.name}</div>
-                        <small>ID: ${project.id}</small>
-                    </div>
-                    <div class="project-stats">
-                        <span><span class="drift-indicator drift-aligned"></span>Aligned</span>
-                        <span>${project.objectives_pending} objectives</span>
-                        <span>${project.total_decisions} decisions</span>
-                        <span class="status-badge status-${project.status}">${project.status}</span>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function updateCharts(data) {
-            updateActivityChart(data);
-            updateObjectivesChart(data);
-            updateFocusChart(data);
-            updatePatternsChart(data);
-        }
-
-        function updateActivityChart(data) {
-            const ctx = document.getElementById('activity-chart').getContext('2d');
-
-            if (charts.activity) {
-                charts.activity.destroy();
-            }
-
-            // Generate sample data for last N hours
-            const hours = Math.min(currentHours, 168); // Max 7 days for performance
-            const labels = [];
-            const commits = [];
-            const decisions = [];
-
-            for (let i = hours - 1; i >= 0; i--) {
-                const date = new Date();
-                date.setHours(date.getHours() - i);
-                labels.push(date.getHours() + ':00');
-
-                // Sample data - would come from real API
-                commits.push(Math.floor(Math.random() * 5));
-                decisions.push(Math.random() > 0.9 ? 1 : 0);
-            }
-
-            charts.activity = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Commits',
-                        data: commits,
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
-                        tension: 0.4
-                    }, {
-                        label: 'Decisions',
-                        data: decisions,
-                        borderColor: '#764ba2',
-                        backgroundColor: 'rgba(118, 75, 162, 0.1)',
-                        tension: 0.4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: { color: '#e0e0e0' }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: '#2a2a3e' },
-                            ticks: { color: '#888' }
-                        },
-                        y: {
-                            grid: { color: '#2a2a3e' },
-                            ticks: { color: '#888' }
-                        }
+            function renderProjectHealth(data) {
+                const ctx = document.getElementById('projectHealthChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Active', 'Paused', 'Archived'],
+                        datasets: [{
+                            label: 'Project Status',
+                            data: [data.active_projects, data.paused_projects, data.archived_projects],
+                            backgroundColor: ['#4CAF50', '#FFC107', '#9E9E9E']
+                        }]
                     }
-                }
-            });
-        }
-
-        function updateObjectivesChart(data) {
-            const ctx = document.getElementById('objectives-chart').getContext('2d');
-
-            if (charts.objectives) {
-                charts.objectives.destroy();
+                });
             }
 
-            // Extract objectives data
-            const labels = [];
-            const progress = [];
-
-            data.projects.forEach(project => {
-                if (project.objectives_pending > 0) {
-                    labels.push(project.name);
-                    // Sample progress - would come from drift analysis
-                    progress.push(Math.random() * 100);
-                }
-            });
-
-            charts.objectives = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
+            function renderAdherenceChart(data) {
+                const ctx = document.getElementById('adherenceChart').getContext('2d');
+                // This is placeholder data
+                const adherenceData = {
+                    labels: data.projects.map(p => p.name),
                     datasets: [{
-                        label: 'Progress %',
-                        data: progress,
-                        backgroundColor: 'rgba(102, 126, 234, 0.8)',
-                        borderColor: '#667eea',
-                        borderWidth: 1
+                        label: 'Alignment Score',
+                        data: data.projects.map(() => Math.random() * (1 - 0.7) + 0.7), // Placeholder
+                        backgroundColor: '#2196F3'
                     }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: { color: '#e0e0e0' }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: '#2a2a3e' },
-                            ticks: { color: '#888' }
-                        },
-                        y: {
-                            grid: { color: '#2a2a3e' },
-                            ticks: {
-                                color: '#888',
-                                callback: function(value) {
-                                    return value + '%';
-                                }
-                            },
-                            max: 100
-                        }
-                    }
-                }
-            });
-        }
-
-        function updateFocusChart(data) {
-            const ctx = document.getElementById('focus-chart').getContext('2d');
-
-            if (charts.focus) {
-                charts.focus.destroy();
+                };
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: adherenceData,
+                    options: { scales: { y: { beginAtZero: true, max: 1 } } }
+                });
             }
 
-            // Calculate focus distribution
-            const labels = data.projects.map(p => p.name);
-            const focusData = data.projects.map(p => {
-                // Sample data - would calculate from activity
-                return Math.floor(Math.random() * 100);
-            });
-
-            charts.focus = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: focusData,
-                        backgroundColor: [
-                            '#667eea',
-                            '#764ba2',
-                            '#4ade80',
-                            '#fbbf24',
-                            '#ef4444'
-                        ],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'right',
-                            labels: { color: '#e0e0e0' }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updatePatternsChart(data) {
-            const ctx = document.getElementById('patterns-chart').getContext('2d');
-
-            if (charts.patterns) {
-                charts.patterns.destroy();
+            function renderActivityFeed(data) {
+                const feed = document.getElementById('activityFeed');
+                // Placeholder activity
+                const activities = [
+                    'User "sumitm1" approved sacred plan "Authentication Architecture"',
+                    'Git commit "feat: implement 2-layer verification"',
+                    'Drift detected in project "YouTube Analyzer"',
+                    'New project "ContextKeeper Pro" created'
+                ];
+                activities.forEach(act => {
+                    const li = document.createElement('li');
+                    li.textContent = act;
+                    feed.appendChild(li);
+                });
             }
-
-            // Development patterns
-            const patterns = {
-                'Implementation': 45,
-                'Bug Fixes': 20,
-                'Refactoring': 15,
-                'Documentation': 10,
-                'Testing': 10
-            };
-
-            charts.patterns = new Chart(ctx, {
-                type: 'radar',
-                data: {
-                    labels: Object.keys(patterns),
-                    datasets: [{
-                        label: 'Activity Distribution',
-                        data: Object.values(patterns),
-                        fill: true,
-                        backgroundColor: 'rgba(102, 126, 234, 0.2)',
-                        borderColor: '#667eea',
-                        pointBackgroundColor: '#667eea',
-                        pointBorderColor: '#fff',
-                        pointHoverBackgroundColor: '#fff',
-                        pointHoverBorderColor: '#667eea'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: { color: '#e0e0e0' }
-                        }
-                    },
-                    scales: {
-                        r: {
-                            angleLines: {
-                                color: '#2a2a3e'
-                            },
-                            grid: {
-                                color: '#2a2a3e'
-                            },
-                            pointLabels: {
-                                color: '#888'
-                            },
-                            ticks: {
-                                color: '#888',
-                                backdropColor: 'transparent'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function showError(message) {
-            const container = document.getElementById('projects-container');
-            container.innerHTML = `<div class="error">${message}</div>`;
-        }
+        });
     </script>
 </body>
 </html>
